@@ -118,27 +118,6 @@ public class ClusterDatabaseConnection: DatabaseConnection {
 	public func startTransaction() -> Transaction {
 		return ClusterTransaction(database: self)
 	}
-	
-	/**
-	This method commits a transaction.
-	
-	This must be a transaction createe on this database.
-	
-	- parameter transaction:		The transaction to commit.
-	- returns:						A future that will fire when the
-									transaction has finished committing. If
-									the transaction is rejected, the future
-									will throw an error.
-	*/
-	public func commit(transaction: Transaction) -> EventLoopFuture<()> {
-		guard let clusterTransaction = transaction as? ClusterTransaction else { return self.eventLoop.newFailedFuture(error: FdbApiError(1000)) }
-		return clusterTransaction.transaction
-			.then { transaction in
-				return EventLoopFuture<Void>.fromFoundationFuture(eventLoop: self.eventLoop, future: fdb_transaction_commit(transaction)).map {
-					_ = clusterTransaction
-				}
-		}
-	}
 }
 
 private var ClusterConnectionNetworkQueue = OperationQueue()

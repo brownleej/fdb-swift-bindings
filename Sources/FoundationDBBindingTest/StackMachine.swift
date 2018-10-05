@@ -756,7 +756,7 @@ public final class StackMachine {
 		case .disableWriteConflict:
 			currentTransaction.setOption(.nextWriteNoWriteConflictRange)
 		case .commit:
-			self.push(future: connection.commit(transaction: currentTransaction).map { _ in StackMachine.resultNotPresent })
+			self.push(future: currentTransaction.commit().map { _ in StackMachine.resultNotPresent })
 		case .reset:
 			currentTransaction.reset()
 		case .cancel:

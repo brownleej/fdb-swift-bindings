@@ -68,6 +68,11 @@ class InMemoryTransactionTests: XCTestCase {
 			("testPerformAtomicOperationWithBitwiseAndPerformsOperation", testPerformAtomicOperationWithBitwiseAndPerformsOperation),
 			("testGetVersionStampReturnsVersionStampAfterCommit", testGetVersionStampReturnsVersionStampAfterCommit),
 			("testSetOptionWithNoWriteConflictOptionPreventsCausingWriteConflicts", testSetOptionWithNoWriteConflictOptionPreventsCausingWriteConflicts),
+			("testCommitTransactionCommitsChanges", testCommitTransactionCommitsChanges),
+			("testCommitTransactionWithPreviouslyCommittedTransactionThrowsError", testCommitTransactionWithPreviouslyCommittedTransactionThrowsError),
+			("testCommitWithReadConflictThrowsError", testCommitWithReadConflictThrowsError),
+			("testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap", testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap),
+			("testCommitWithCancelledTransactionThrowsError", testCommitWithCancelledTransactionThrowsError),
 		]
 	}
 	
@@ -473,7 +478,101 @@ class InMemoryTransactionTests: XCTestCase {
 			_ = transaction2.read("Test Key")
 			transaction2.store(key: "Test Key 2", value: "Test Value 2")
 			self.connection.commit(transaction: self.transaction).then {
-				self.connection.commit(transaction: transaction2)
+				transaction2.commit()
+				}.catch(self)
+		}
+	}
+	
+	func testCommitTransactionCommitsChanges() throws {
+		self.runLoop(eventLoop) {
+			let transaction1 = self.connection.startTransaction()
+			transaction1.store(key: "Test Key", value: "Test Value")
+			transaction1.commit().map { () -> Void in
+				let transaction2 = self.connection.startTransaction()
+				transaction2.read("Test Key").map { XCTAssertEqual($0, "Test Value") }.catch(self)
+				XCTAssertEqual(self.connection.currentVersion, 1)
+				}.catch(self)
+		}
+	}
+	
+	func testCommitTransactionWithPreviouslyCommittedTransactionThrowsError() throws {
+		self.runLoop(eventLoop) {
+			let transaction = self.connection.startTransaction()
+			transaction.store(key: "Test Key", value: "Test Value")
+			transaction.commit().then {
+				transaction.commit().map { XCTFail() }
+					.mapIfError {
+						switch($0) {
+						case let error as ClusterDatabaseConnection.FdbApiError:
+							XCTAssertEqual(error.errorCode, 2017)
+						default:
+							XCTFail("Unexpected error: \($0)")
+						}
+				}
+				}.catch(self)
+		}
+	}
+	
+	func testCommitWithReadConflictThrowsError() throws {
+		self.runLoop(eventLoop) {
+			let transaction1 = self.connection.startTransaction()
+			transaction1.read("Test Key 1").then { _ -> EventLoopFuture<()> in
+				transaction1.store(key: "Test Key 5", value: "Test Value 5")
+				let transaction2 = self.connection.startTransaction()
+				transaction2.store(key: "Test Key 1", value: "Test Value 1")
+				return transaction2.commit().then {
+					_ = transaction1.commit().map { _ in XCTFail() }
+						.mapIfError {
+							switch($0) {
+							case let error as ClusterDatabaseConnection.FdbApiError:
+								XCTAssertEqual(error.errorCode, 1020)
+							default:
+								XCTFail("Unexpected error: \($0)")
+							}
+					}
+					
+					let transaction3 = self.connection.startTransaction()
+					return transaction3.read("Test Key 5").map { XCTAssertNil($0) }
+				}
+				}.catch(self)
+		}
+	}
+	
+	func testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap() throws {
+		self.runLoop(eventLoop) {
+			let transaction1 = self.connection.startTransaction()
+			transaction1.store(key: "Test Key 1", value: "Test Value 1")
+			transaction1.commit().then { _ -> EventLoopFuture<()> in
+				let transaction2 = self.connection.startTransaction()
+				_ = transaction2.read("Test Key 1")
+				transaction2.store(key: "Test Key 2", value: "Test Value 2")
+				let transaction3 = self.connection.startTransaction()
+				transaction3.store(key: "Test Key 3", value: "Test Value 3")
+				return self.connection.commit(transaction: transaction3).then {
+					transaction2.commit().map {
+						let transaction4 = self.connection.startTransaction()
+						transaction4.read("Test Key 1").map { XCTAssertEqual($0, "Test Value 1") }.catch(self)
+						transaction4.read("Test Key 2").map { XCTAssertEqual($0, "Test Value 2") }.catch(self)
+						transaction4.read("Test Key 3").map { XCTAssertEqual($0, "Test Value 3") }.catch(self)
+					}
+				}
+				}.catch(self)
+		}
+	}
+	
+	func testCommitWithCancelledTransactionThrowsError() throws {
+		self.runLoop(eventLoop) {
+			let transaction = self.connection.startTransaction()
+			transaction.store(key: "Test Key 1", value: "Test Value 1")
+			transaction.cancel()
+			
+			transaction.commit().map { XCTFail() }.mapIfError {
+				switch($0) {
+				case let error as ClusterDatabaseConnection.FdbApiError:
+					XCTAssertEqual(error.errorCode, 1025)
+				default:
+					XCTFail("Unexpected error: \($0)")
+				}
 				}.catch(self)
 		}
 	}

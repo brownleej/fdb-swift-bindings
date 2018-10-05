@@ -199,6 +199,21 @@ public protocol Transaction {
 	- parameter value:		The value to set for the option.
 	*/
 	func setOption(_ option: TransactionOption, value: DatabaseValue?)
+	
+	/**
+	 This method commits a transaction to the database.
+	 
+	 The database will check the read conflict ranges on the transaction for
+	 conflicts with recent changes, and if it detects any, it will fail the
+	 transaction. Otherwise, the transaction's changes will be committed into
+	 the database and will be available for subsequent reads.
+	 
+	 - returns:                    A future that will fire when the transaction
+	 is finished committing. If the transaction
+	 cannot be committed, the future will throw
+	 an error.
+	 */
+	func commit() -> EventLoopFuture<()>
 }
 
 extension Transaction {

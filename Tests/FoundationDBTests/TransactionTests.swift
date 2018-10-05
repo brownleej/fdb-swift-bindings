@@ -81,7 +81,7 @@ class TransactionTests: XCTestCase {
 				self.transaction.addReadConflict(key: "Test Key 1")
 				self.transaction.store(key: "Test Key 2", value: "Test Value 2")
 				transaction2.store(key: "Test Key 1", value: "Test Value 1")
-				return self.connection.commit(transaction: transaction2)
+				return transaction2.commit()
 				}.map { _ in
 					_ = self.connection.commit(transaction: self.transaction).map { _ in XCTFail() }
 				}.catch(self)
@@ -96,7 +96,7 @@ class TransactionTests: XCTestCase {
 				self.transaction.store(key: "Test Key 2", value: "Test Value 2")
 				return self.connection.commit(transaction: self.transaction)
 				}.map { _ in
-					_ = self.connection.commit(transaction: transaction2).map { XCTFail() }
+					_ = transaction2.commit().map { XCTFail() }
 				}.catch(self)
 		}
 	}

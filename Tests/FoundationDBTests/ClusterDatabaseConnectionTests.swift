@@ -31,11 +31,6 @@ class ClusterDatabaseConnectionTests: XCTestCase {
 	static var allTests : [(String, (ClusterDatabaseConnectionTests) -> () throws -> Void)] {
 		return [
 			("testStartTransactionCreatesClusterTransaction", testStartTransactionCreatesClusterTransaction),
-			("testCommitTransactionCommitsChanges", testCommitTransactionCommitsChanges),
-			("testCommitTransactionWithWrongTransactionTypeThrowsError", testCommitTransactionWithWrongTransactionTypeThrowsError),
-			("testCommitTransactionWithPreviouslyCommittedTransactionThrowsError", testCommitTransactionWithPreviouslyCommittedTransactionThrowsError),
-			("testCommitWithReadConflictThrowsError", testCommitWithReadConflictThrowsError),
-			("testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap", testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap),
 		]
 	}
 	
@@ -65,120 +60,7 @@ class ClusterDatabaseConnectionTests: XCTestCase {
 			
 			let transaction = connection.startTransaction()
 			XCTAssertTrue(transaction is ClusterTransaction)
-			connection.commit(transaction: transaction).mapIfError { XCTFail("\($0)") }.catch(self)
-		}
-	}
-	
-	func testCommitTransactionCommitsChanges() throws {
-		self.runLoop(eventLoop) {
-			guard let connection = self.connection else { return XCTFail() }
-			let transaction1 = connection.startTransaction()
-			transaction1.store(key: "Test Key", value: "Test Value")
-			connection.commit(transaction: transaction1).map { _ in
-				let transaction2 = connection.startTransaction()
-				transaction2.read("Test Key").map {
-					XCTAssertEqual($0, "Test Value")
-					}.catch(self)
-				}.catch(self)
-		}
-	}
-	
-	func testCommitTransactionWithWrongTransactionTypeThrowsError() throws {
-		self.runLoop(eventLoop) {
-			guard let connection = self.connection else { return XCTFail() }
-			let connection2 = InMemoryDatabaseConnection(eventLoop: self.eventLoop)
-			let transaction2 = connection2.startTransaction()
-			transaction2.store(key: "Test Key", value: "Test Value")
-			connection.commit(transaction: transaction2).map { _ in XCTFail() }
-				.mapIfError {
-					switch($0) {
-					case let error as ClusterDatabaseConnection.FdbApiError:
-						XCTAssertEqual(error.errorCode, 1000)
-					default:
-						XCTFail("Unexpected error: \($0)")
-					}
-				}.catch(self)
-		}
-	}
-	
-	func testCommitTransactionWithPreviouslyCommittedTransactionThrowsError() throws {
-		self.runLoop(eventLoop) {
-			guard let connection = self.connection else { return XCTFail() }
-			let transaction = connection.startTransaction()
-			transaction.store(key: "Test Key", value: "Test Value")
-			connection.commit(transaction: transaction).then {
-				connection.commit(transaction: transaction).map { XCTFail() }
-					.mapIfError {
-						switch($0) {
-						case let error as ClusterDatabaseConnection.FdbApiError:
-							XCTAssertEqual(error.errorCode, 2017)
-						default:
-							XCTFail("Unexpected error: \($0)")
-						}
-				}
-				}.catch(self)
-		}
-	}
-	
-	func testCommitWithReadConflictThrowsError() throws {
-		self.runLoop(eventLoop) {
-			guard let connection = self.connection else { return XCTFail() }
-			let transaction1 = connection.startTransaction()
-			transaction1.read("Test Key 1").then { _ -> EventLoopFuture<Void> in
-				transaction1.store(key: "Test Key 2", value: "Test Value 2")
-				let transaction2 = connection.startTransaction()
-				transaction2.store(key: "Test Key 1", value: "Test Value 1")
-				return connection.commit(transaction: transaction2)
-					.then { _ in
-						connection.commit(transaction: transaction1).map { _ in XCTFail() }
-							.mapIfError {
-								switch($0) {
-								case let error as ClusterDatabaseConnection.FdbApiError:
-									XCTAssertEqual(error.errorCode, 1020)
-								default:
-									XCTFail("Unexpected error: \($0)")
-								}
-						}
-				}
-				}.catch(self)
-			
-			let transaction3 = connection.startTransaction()
-			transaction3.read("Test Key 2").map {
-				XCTAssertNil($0)
-				}.catch(self)
-		}
-		print("Done")
-	}
-	
-	func testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap() throws {
-		self.runLoop(eventLoop) {
-			guard let connection = self.connection else { return XCTFail() }
-			let transaction1 = connection.startTransaction()
-			transaction1.store(key: "Test Key 1", value: "Test Value 1")
-			
-			connection.commit(transaction: transaction1)
-				.then { _ -> EventLoopFuture<Void> in
-					let transaction2 = connection.startTransaction()
-					_ = transaction2.read("Test Key 1")
-					transaction2.store(key: "Test Key 2", value: "Test Value 2")
-					let transaction3 = connection.startTransaction()
-					transaction3.store(key: "Test Key 3", value: "Test Value 3")
-					return connection.commit(transaction: transaction3).then {
-						connection.commit(transaction: transaction2)
-					}
-				}
-				.map { _ in
-					let transaction4 = connection.startTransaction()
-					transaction4.read("Test Key 1").map {
-						XCTAssertEqual($0, "Test Value 1")
-						}.catch(self)
-					transaction4.read("Test Key 2").map {
-						XCTAssertEqual($0, "Test Value 2")
-						}.catch(self)
-					transaction4.read("Test Key 3").map {
-						XCTAssertEqual($0, "Test Value 3")
-						}.catch(self)
-				}.catch(self)
+			transaction.commit().mapIfError { XCTFail("\($0)") }.catch(self)
 		}
 	}
 }

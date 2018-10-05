@@ -771,7 +771,7 @@ class StackMachineTests: XCTestCase {
 			self.machine.execute(operation: .getVersionStamp).then { _ -> EventLoopFuture<Void> in
 				XCTAssertEqual(self.machine.stack.count, 3)
 				
-				return self.connection.commit(transaction: self.machine.currentTransaction).map { _ in
+				return self.machine.currentTransaction.commit().map { _ in
 					self.machine.stack[2].value.map { XCTAssertNotNil($0 as? Data) }.catch(self)
 				}
 				}.catch(self)
@@ -788,7 +788,7 @@ class StackMachineTests: XCTestCase {
 					return self.connection.transaction { $0.read(key) }
 						.map { XCTAssertNil($0) }
 				}.then { _ in
-					self.connection.commit(transaction: self.machine.currentTransaction)
+					self.machine.currentTransaction.commit()
 				}.map { _ in
 					self.connection.transaction {$0.read(key)}
 						.map { XCTAssertEqual($0, "Set Test Value") }.catch(self)
@@ -808,7 +808,7 @@ class StackMachineTests: XCTestCase {
 				}.map { _ in
 					self.connection.transaction {$0.read(key)}.map { XCTAssertNil($0) }.catch(self)
 				}.then { _ in
-					self.connection.commit(transaction: self.machine.currentTransaction)
+					self.machine.currentTransaction.commit()
 				}.map { _ in
 					self.connection.transaction {$0.read(key)}.map { XCTAssertNil($0) }.catch(self)
 				}.catch(self)
@@ -832,7 +832,7 @@ class StackMachineTests: XCTestCase {
 				}.then { _ in
 					self.connection.transaction {$0.read("Test Key 1")}.map { XCTAssertNotNil($0) }
 				}.then { _ in
-					self.connection.commit(transaction: self.machine.currentTransaction)
+					self.machine.currentTransaction.commit()
 				}.map { _ in
 					self.connection.transaction {$0.read("Test Key 1")}.map { XCTAssertNotNil($0) }.catch(self)
 					self.connection.transaction {$0.read("Test Key 2")}.map { XCTAssertNil($0) }.catch(self)
@@ -865,7 +865,7 @@ class StackMachineTests: XCTestCase {
 				}.then { _ in
 					self.connection.transaction {$0.read("Test Key 2")}.map { XCTAssertNotNil($0) }
 				}.then { _ in
-					self.connection.commit(transaction: self.machine.currentTransaction)
+					self.machine.currentTransaction.commit()
 				}.map { _ in
 					self.connection.transaction {$0.read("Test Key 1")}.map { XCTAssertNil($0) }.catch(self)
 					self.connection.transaction {$0.read("Test Key 2")}.map { XCTAssertNil($0) }.catch(self)
@@ -912,7 +912,7 @@ class StackMachineTests: XCTestCase {
 					self.machine.currentTransaction.store(key: "Test Key 3", value: "TestValue3")
 				}
 				.map { _ in
-					_ = self.connection.commit(transaction: self.machine.currentTransaction).map { _ in XCTFail() }
+					_ = self.machine.currentTransaction.commit().map { _ in XCTFail() }
 					XCTAssertEqual(self.machine.stack.count, 3)
 					self.machine.stack.last!.value.map { XCTAssertEqual($0 as? Data, "SET_CONFLICT_KEY".utf8.data) }.catch(self)
 				}.catch(self)
@@ -938,7 +938,7 @@ class StackMachineTests: XCTestCase {
 				}
 				}.map { _ in
 					self.machine.currentTransaction.store(key: "Test Key 3", value: "TestValue3")
-					_ = self.connection.commit(transaction: self.machine.currentTransaction).map { _ in XCTFail() }.mapIfError { _ in }
+					_ = self.machine.currentTransaction.commit().map { _ in XCTFail() }.mapIfError { _ in }
 					XCTAssertEqual(self.machine.stack.count, 3)
 					self.machine.stack.last!.value.map { XCTAssertEqual($0 as? Data, "SET_CONFLICT_RANGE".utf8.data) }.catch(self)
 				}.catch(self)
@@ -962,9 +962,9 @@ class StackMachineTests: XCTestCase {
 				return transaction2.read(key1).map { _ in
 					transaction2.store(key: "Write Key", value: "TestValue")
 					}.then { _ in
-						self.connection.commit(transaction: self.machine.currentTransaction)
+						self.machine.currentTransaction.commit()
 					}.map { _ in
-						_ = self.connection.commit(transaction: transaction2).map { _ in XCTFail() }.mapIfError { _ in }
+						_ = transaction2.commit().map { _ in XCTFail() }.mapIfError { _ in }
 				}
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -990,9 +990,9 @@ class StackMachineTests: XCTestCase {
 				let transaction2 = self.connection.startTransaction()
 				return transaction2.read(key1).then { _ -> EventLoopFuture<Void> in
 					transaction2.store(key: "Write Key", value: "TestValue")
-					return self.connection.commit(transaction: self.machine.currentTransaction)
+					return self.machine.currentTransaction.commit()
 					}.then { _ in
-						self.connection.commit(transaction: transaction2).map { _ in XCTFail() }.mapIfError { _ in }
+						transaction2.commit().map { _ in XCTFail() }.mapIfError { _ in }
 				}
 				}.map { _ in
 					XCTAssertEqual(self.machine.stack.count, 3)
@@ -1015,9 +1015,9 @@ class StackMachineTests: XCTestCase {
 					transaction2.store(key: "Test Key 2", value: "Test Value 2")
 					self.machine.currentTransaction.store(key: "Test Key 1", value: "Test Value 1")
 					}.then { _ in
-						self.connection.commit(transaction: self.machine.currentTransaction)
+						self.machine.currentTransaction.commit()
 					}.then { _ in
-						self.connection.commit(transaction: transaction2)
+						transaction2.commit()
 					}.catch(self)
 				}.catch(self)
 		}
@@ -1039,7 +1039,7 @@ class StackMachineTests: XCTestCase {
 	func testExecuteCancelCancelsTransaction() throws {
 		self.runLoop(eventLoop) {
 			self.machine.execute(operation: .cancel).map { _ in
-				_ = self.connection.commit(transaction: self.machine.currentTransaction).map { _ in XCTFail() }
+				_ = self.machine.currentTransaction.commit().map { _ in XCTFail() }
 				XCTAssertEqual(self.machine.stack.count, 2)
 				}.catch(self)
 		}
@@ -1051,7 +1051,7 @@ class StackMachineTests: XCTestCase {
 			self.machine.execute(operation: .reset).map { _ in
 				self.machine.currentTransaction.store(key: "Test Key 2", value: "Test Value 2")
 				}.then { _ in
-					self.connection.commit(transaction: self.machine.currentTransaction)
+					self.machine.currentTransaction.commit()
 				}.then { _ in
 					self.connection.transaction { (transaction: Transaction) in
 						transaction.read("Test Key 1").map { XCTAssertNil($0) }.catch(self)
@@ -1066,7 +1066,7 @@ class StackMachineTests: XCTestCase {
 	func testExecuteGetCommittedVersionGetsVersionFromTransaction() throws {
 		self.runLoop(eventLoop) {
 			self.machine.currentTransaction.store(key: "Test Key", value: "Test Value")
-			self.connection.commit(transaction: self.machine.currentTransaction)
+			self.machine.currentTransaction.commit()
 				.then { _ in
 					self.machine.execute(operation: .getCommittedVersion)
 				}.map { _ in

@@ -446,6 +446,23 @@ public class ClusterTransaction: Transaction {
 		}
 	}
 	
+	/**
+	 This method commits a transaction.
+	 
+	 - returns:                        A future that will fire when the
+	 transaction has finished committing. If
+	 the transaction is rejected, the future
+	 will throw an error.
+	 */
+	public func commit() -> EventLoopFuture<()> {
+		return self.transaction
+			.then { transaction in
+				return EventLoopFuture<Void>.fromFoundationFuture(eventLoop: self.eventLoop, future: fdb_transaction_commit(transaction)).map {
+					_ = self
+				}
+		}
+	}
+	
 	internal func withTransaction<T>(block: @escaping (OpaquePointer) throws -> T) -> EventLoopFuture<T> {
 		return transaction.thenThrowing {
 			let value = try block($0)

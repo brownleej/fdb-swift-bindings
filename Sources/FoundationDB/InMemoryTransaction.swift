@@ -401,4 +401,46 @@ public final class InMemoryTransaction: Transaction {
 	public func setOption(_ option: TransactionOption, value: DatabaseValue?) {
 		options.insert(option)
 	}
+	
+	/**
+	 This method commits a transaction to the database.
+	 
+	 If the transaction has added a read conflict on any keys that have
+	 changed since the transaction's readVersion, this will reject the
+	 transaction.
+	 
+	 If the transaction is valid this will merge in the keys and values that
+	 were changed in the transaction.
+	 
+	 - returns:                    A future that will fire when the
+	 transaction has finished committing. If
+	 the transaction is rejected, the future
+	 will throw an error.
+	 */
+	public func commit() -> EventLoopFuture<()> {
+		if self.committed {
+			return eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(2017))
+		}
+		if self.cancelled {
+			return eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(1025))
+		}
+		for (version, changes) in database.changeHistory {
+			if version <= self.readVersion { continue }
+			for changedRange in changes {
+				for readRange in self.readConflicts {
+					if changedRange.contains(readRange.lowerBound) || (changedRange.contains(readRange.lowerBound) && readRange.upperBound != changedRange.lowerBound) {
+						return eventLoop.newFailedFuture(error: ClusterDatabaseConnection.FdbApiError(1020))
+					}
+				}
+			}
+		}
+		for (key, value) in self.changes {
+			database.data[key] = value
+		}
+		database.currentVersion += 1
+		database.changeHistory.append((database.currentVersion, self.writeConflicts))
+		self.committed = true
+		self.committedVersion = database.currentVersion
+		return eventLoop.newSucceededFuture(result: ())
+	}
 }

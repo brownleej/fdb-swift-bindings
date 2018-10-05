@@ -72,6 +72,10 @@ class ClusterTransactionTests: XCTestCase {
 			("testGetVersionStampReturnsVersionStampAfterCommit", testGetVersionStampReturnsVersionStampAfterCommit),
 			("testAddWriteConflictAddsWriteConflict", testAddWriteConflictAddsWriteConflict),
 			("testSetOptionWithNoWriteConflictOptionPreventsCausingWriteConflicts", testSetOptionWithNoWriteConflictOptionPreventsCausingWriteConflicts),
+			("testCommitTransactionCommitsChanges", testCommitTransactionCommitsChanges),
+			("testCommitTransactionWithPreviouslyCommittedTransactionThrowsError", testCommitTransactionWithPreviouslyCommittedTransactionThrowsError),
+			("testCommitWithReadConflictThrowsError", testCommitWithReadConflictThrowsError),
+			("testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap", testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap),
 		]
 	}
 	
@@ -136,7 +140,7 @@ class ClusterTransactionTests: XCTestCase {
 					return transaction.read("Test Key 1").map {
 						XCTAssertEqual($0, "Test Value 1")
 						}.map { _ in
-							_ = connection.commit(transaction: transaction).map { XCTFail() }
+							_ = transaction.commit().map { XCTFail() }
 					}
 				}.catch(self)
 		}
@@ -156,7 +160,7 @@ class ClusterTransactionTests: XCTestCase {
 						.map { XCTAssertEqual($0, "Test Value 1") }
 						.catch(self)
 					transaction.store(key: "Test Key 2", value: "Test Value 2")
-					return connection.commit(transaction: transaction)
+					return transaction.commit()
 				}.catch(self)
 		}
 	}
@@ -356,7 +360,7 @@ class ClusterTransactionTests: XCTestCase {
 			guard let transaction = self.transaction else { return XCTFail() }
 			guard let connection = self.connection else { return XCTFail() }
 			transaction.clear(key: "Test Key 1")
-			connection.commit(transaction: transaction)
+			transaction.commit()
 				.map { _ in
 					connection.transaction { $0.read("Test Key 1") }.map {
 						XCTAssertNil($0)
@@ -373,7 +377,7 @@ class ClusterTransactionTests: XCTestCase {
 			guard let transaction = self.transaction else { return XCTFail() }
 			guard let connection = self.connection else { return XCTFail() }
 			transaction.clear(range: "Test Key 1" ..< "Test Key 3")
-			connection.commit(transaction: transaction)
+			transaction.commit()
 				.map { _ in
 					connection.transaction { $0.read("Test Key 1") }.map {
 						XCTAssertNil($0)
@@ -398,7 +402,7 @@ class ClusterTransactionTests: XCTestCase {
 			transaction.addReadConflict(on: "Test Key 2" ..< "Test Key 3")
 			connection.transaction { $0.store(key: "Test Key 2", value: "Conflict!") }
 				.map { _ in
-					connection.commit(transaction: transaction).map { XCTFail() }
+					transaction.commit().map { XCTFail() }
 						.mapIfError { switch($0) {
 						case let error as ClusterDatabaseConnection.FdbApiError:
 							XCTAssertEqual(1020, error.errorCode)
@@ -420,7 +424,7 @@ class ClusterTransactionTests: XCTestCase {
 				$0.store(key: "C", value: "D")
 				$0.addWriteConflict(on: "Test Key" ..< "Test Kez")
 				}.map { _ in
-					connection.commit(transaction: transaction).map { XCTFail() }
+					transaction.commit().map { XCTFail() }
 						.mapIfError { switch($0) {
 						case let error as ClusterDatabaseConnection.FdbApiError:
 							XCTAssertEqual(1020, error.errorCode)
@@ -452,9 +456,8 @@ class ClusterTransactionTests: XCTestCase {
 	func testGetCommittedVersionGetsVersion() throws {
 		self.runLoop(eventLoop) {
 			guard let transaction = self.transaction else { return XCTFail() }
-			guard let connection = self.connection else { return XCTFail() }
 			transaction.store(key: "Test Key 5", value: "Test Value 5")
-			connection.commit(transaction: transaction)
+			transaction.commit()
 				.then {
 					transaction.getCommittedVersion().map {
 						XCTAssertGreaterThan($0, 0)
@@ -516,7 +519,7 @@ class ClusterTransactionTests: XCTestCase {
 			transaction.store(key: "Test Key 5", value: "Test Value 5")
 			transaction.reset()
 			transaction.store(key: "Test Key 6", value: "Test Value 6")
-			connection.commit(transaction: transaction).then {
+			transaction.commit().then {
 				connection.transaction {
 					$0.read("Test Key 5").map {
 						XCTAssertNil($0)
@@ -534,11 +537,11 @@ class ClusterTransactionTests: XCTestCase {
 			guard let transaction = self.transaction else { return XCTFail() }
 			guard let connection = self.connection else { return XCTFail() }
 			transaction.store(key: "Test Key 5", value: "Test Value 5")
-			connection.commit(transaction: transaction)
+			transaction.commit()
 				.map { _ in
 					transaction.reset()
 					transaction.store(key: "Test Key 6", value: "Test Value 6")
-					connection.commit(transaction: transaction).then {
+					transaction.commit().then {
 						connection.transaction {
 							$0.read("Test Key 5").map { XCTAssertEqual($0, "Test Value 5") }.catch(self)
 							$0.read("Test Key 6").map { XCTAssertEqual($0, "Test Value 6") }.catch(self)
@@ -556,7 +559,7 @@ class ClusterTransactionTests: XCTestCase {
 			transaction.cancel()
 			transaction.reset()
 			transaction.store(key: "Test Key 6", value: "Test Value 6")
-			connection.commit(transaction: transaction).map { _ in
+			transaction.commit().map { _ in
 				connection.transaction {
 					$0.read("Test Key 5").map { XCTAssertNil($0) }.catch(self)
 					$0.read("Test Key 6").map { XCTAssertEqual($0, "Test Value 6") }.catch(self)
@@ -571,7 +574,7 @@ class ClusterTransactionTests: XCTestCase {
 			guard let connection = self.connection else { return XCTFail() }
 			transaction.store(key: "Test Key 5", value: "Test Value 5")
 			transaction.cancel()
-			connection.commit(transaction: transaction).map { XCTFail() }
+			transaction.commit().map { XCTFail() }
 				.mapIfError {
 					switch($0) {
 					case let error as ClusterDatabaseConnection.FdbApiError:
@@ -592,7 +595,7 @@ class ClusterTransactionTests: XCTestCase {
 			guard let connection = self.connection else { return XCTFail() }
 			connection.transaction { $0.store(key: "Test Key", value: DatabaseValue(Data(bytes: [0xC3]))) }.map { _ in
 				transaction.performAtomicOperation(operation: .bitAnd, key: "Test Key", value: DatabaseValue(Data(bytes: [0xA9])))
-				connection.commit(transaction: transaction).map { _ in
+				transaction.commit().map { _ in
 					connection.transaction {
 						$0.read("Test Key").map {
 							XCTAssertEqual($0, DatabaseValue(Data(bytes: [0x81])))
@@ -606,10 +609,9 @@ class ClusterTransactionTests: XCTestCase {
 	func testGetVersionStampReturnsVersionStampAfterCommit() throws {
 		self.runLoop(eventLoop) {
 			guard let transaction = self.transaction else { return XCTFail() }
-			guard let connection = self.connection else { return XCTFail() }
 			let future = transaction.getVersionStamp()
 			transaction.store(key: "Test Key", value: "Test Value")
-			connection.commit(transaction: transaction).map { _ in
+			transaction.commit().map { _ in
 				future.map { stamp in
 					transaction.getCommittedVersion().map { version in
 						var bytes: [UInt8] = [0x00, 0x00]
@@ -634,8 +636,103 @@ class ClusterTransactionTests: XCTestCase {
 			transaction.store(key: "Test Key", value: "Test Value")
 			_ = transaction2.read("Test Key")
 			transaction2.store(key: "Test Key 2", value: "Test Value 2")
-			connection.commit(transaction: transaction).catch(self)
-			connection.commit(transaction: transaction2).catch(self)
+			transaction.commit().catch(self)
+			transaction2.commit().catch(self)
+		}
+	}
+	
+	func testCommitTransactionCommitsChanges() throws {
+		self.runLoop(eventLoop) {
+			guard let connection = self.connection else { return XCTFail() }
+			let transaction1 = connection.startTransaction()
+			transaction1.store(key: "Test Key", value: "Test Value")
+			transaction1.commit().map { _ in
+				let transaction2 = connection.startTransaction()
+				transaction2.read("Test Key").map {
+					XCTAssertEqual($0, "Test Value")
+					}.catch(self)
+				}.catch(self)
+		}
+	}
+	
+	func testCommitTransactionWithPreviouslyCommittedTransactionThrowsError() throws {
+		self.runLoop(eventLoop) {
+			guard let connection = self.connection else { return XCTFail() }
+			let transaction = connection.startTransaction()
+			transaction.store(key: "Test Key", value: "Test Value")
+			transaction.commit().then {
+				transaction.commit().map { XCTFail() }
+					.mapIfError {
+						switch($0) {
+						case let error as ClusterDatabaseConnection.FdbApiError:
+							XCTAssertEqual(error.errorCode, 2017)
+						default:
+							XCTFail("Unexpected error: \($0)")
+						}
+				}
+				}.catch(self)
+		}
+	}
+	
+	func testCommitWithReadConflictThrowsError() throws {
+		self.runLoop(eventLoop) {
+			guard let connection = self.connection else { return XCTFail() }
+			let transaction1 = connection.startTransaction()
+			transaction1.read("Test Key 1").then { _ -> EventLoopFuture<Void> in
+				transaction1.store(key: "Test Key 5", value: "Test Value 5")
+				let transaction2 = connection.startTransaction()
+				transaction2.store(key: "Test Key 1", value: "Test Value 1")
+				return transaction2.commit()
+					.then { _ in
+						transaction1.commit().map { _ in XCTFail() }
+							.mapIfError {
+								switch($0) {
+								case let error as ClusterDatabaseConnection.FdbApiError:
+									XCTAssertEqual(error.errorCode, 1020)
+								default:
+									XCTFail("Unexpected error: \($0)")
+								}
+						}
+				}
+				}.catch(self)
+			
+			let transaction3 = connection.startTransaction()
+			transaction3.read("Test Key 5").map {
+				XCTAssertNil($0)
+				}.catch(self)
+		}
+		print("Done")
+	}
+	
+	func testCommitWithPotentialReadConflictAcceptsTransactionWithoutOverlap() throws {
+		self.runLoop(eventLoop) {
+			guard let connection = self.connection else { return XCTFail() }
+			let transaction1 = connection.startTransaction()
+			transaction1.store(key: "Test Key 1", value: "Test Value 1")
+			
+			transaction1.commit()
+				.then { _ -> EventLoopFuture<Void> in
+					let transaction2 = connection.startTransaction()
+					_ = transaction2.read("Test Key 1")
+					transaction2.store(key: "Test Key 2", value: "Test Value 2")
+					let transaction3 = connection.startTransaction()
+					transaction3.store(key: "Test Key 3", value: "Test Value 3")
+					return transaction3.commit().then {
+						transaction2.commit()
+					}
+				}
+				.map { _ in
+					let transaction4 = connection.startTransaction()
+					transaction4.read("Test Key 1").map {
+						XCTAssertEqual($0, "Test Value 1")
+						}.catch(self)
+					transaction4.read("Test Key 2").map {
+						XCTAssertEqual($0, "Test Value 2")
+						}.catch(self)
+					transaction4.read("Test Key 3").map {
+						XCTAssertEqual($0, "Test Value 3")
+						}.catch(self)
+				}.catch(self)
 		}
 	}
 }

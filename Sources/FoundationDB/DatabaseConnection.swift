@@ -37,22 +37,6 @@ public protocol DatabaseConnection {
 	- returns:		The new transaction.
 	*/
 	func startTransaction() -> Transaction
-	
-	/**
-	This method commits a transaction to the database.
-	
-	The database will check the read conflict ranges on the transaction for
-	conflicts with recent changes, and if it detects any, it will fail the
-	transaction. Otherwise, the transaction's changes will be committed into
-	the database and will be available for subsequent reads.
-	
-	- parameter transaction:	The transaction we are committing.
-	- returns:					A future that will fire when the transaction
-	is finished committing. If the transaction
-	cannot be committed, the future will throw
-	an error.
-	*/
-	func commit(transaction: Transaction) -> EventLoopFuture<()>
 }
 
 extension DatabaseConnection {
@@ -92,9 +76,31 @@ extension DatabaseConnection {
 		
 		return EventLoopFuture<T>.retrying(eventLoop: eventLoop, onError: transaction.attemptRetry) {
 			return try block(transaction)
-				.then { v in return self.commit(transaction: transaction)
+				.then { v in return transaction.commit()
 					.map { _ in return v }
 			}
 		}
+	}
+	
+	/**
+	This method commits a transaction to the database.
+	
+	The database will check the read conflict ranges on the transaction for
+	conflicts with recent changes, and if it detects any, it will fail the
+	transaction. Otherwise, the transaction's changes will be committed into
+	the database and will be available for subsequent reads.
+	
+	This is deprecated. You should use The `commit` method on the transaction
+	itself instead.
+	
+	- parameter transaction:	The transaction we are committing.
+	- returns:					A future that will fire when the transaction
+	is finished committing. If the transaction
+	cannot be committed, the future will throw
+	an error.
+	*/
+	@available(*, deprecated)
+	public func commit(transaction: Transaction) -> EventLoopFuture<()> {
+		return transaction.commit()
 	}
 }

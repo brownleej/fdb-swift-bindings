@@ -28,13 +28,13 @@ public final class InMemoryDatabaseConnection: DatabaseConnection {
 	public let eventLoop: EventLoop
 	
 	/** The internal data storage. */
-	private var data: [DatabaseValue: DatabaseValue]
+	internal var data: [DatabaseValue: DatabaseValue]
 	
 	/** The keys changed by previous commit versions. */
-	private var changeHistory: [(Int64, [(Range<DatabaseValue>)])]
+	internal var changeHistory: [(Int64, [(Range<DatabaseValue>)])]
 	
 	/** The last committed transaction version. */
-	public private(set) var currentVersion: Int64
+	public internal(set) var currentVersion: Int64
 	
 	/** This initializer creates a new database. */
 	public init(eventLoop: EventLoop) {

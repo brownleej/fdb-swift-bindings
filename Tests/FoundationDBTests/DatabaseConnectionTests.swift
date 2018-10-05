@@ -56,7 +56,7 @@ class DatabaseConnectionTests: XCTestCase {
 						}
 						.catch(self)
 					
-					return self.connection.commit(transaction: transaction)
+					return transaction.commit()
 				}.catch(self)
 		}
 	}
@@ -72,7 +72,7 @@ class DatabaseConnectionTests: XCTestCase {
 					let transaction = self.connection.startTransaction()
 					transaction.read("Test Key 1")
 						.map { XCTAssertEqual($0, "Test Value 1") }.catch(self)
-					return self.connection.commit(transaction: transaction)
+					return transaction.commit()
 				}.catch(self)
 		}
 	}
